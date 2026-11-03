@@ -99,8 +99,8 @@ impl Store {
             "SELECT a.id, a.source_id, s.title, a.url, a.title, a.published_at, a.is_read
              FROM articles a JOIN sources s ON s.id = a.source_id
              {filter}
-             ORDER BY a.is_read ASC, (a.published_at IS NULL) ASC,
-                      a.published_at DESC, a.position ASC, a.discovered_at DESC"
+             ORDER BY (a.published_at IS NULL) ASC, a.published_at DESC,
+                      a.position ASC, a.discovered_at DESC, a.id ASC"
         );
         let mut stmt = self.conn.prepare(&sql)?;
         let rows = stmt.query_map(args, |row| {
@@ -347,5 +347,28 @@ mod tests {
         assert_eq!(source.status, "error");
         assert_eq!(source.unread_count, 2);
         assert!(source.last_success_at.is_some());
+    }
+
+    #[test]
+    fn marking_an_article_read_keeps_its_position() {
+        let file = tempfile::NamedTempFile::new().unwrap();
+        let mut store = Store::open(file.path()).unwrap();
+        let source_id = store.add_source("https://example.com/").unwrap();
+        store.record_success(source_id, found(3)).unwrap();
+
+        let before = store.articles_for(source_id).unwrap();
+        assert_eq!(before.len(), 3);
+        let first_id = before[0].id;
+        let urls_before = before
+            .iter()
+            .map(|article| &article.url)
+            .collect::<Vec<_>>();
+
+        store.set_read(first_id, true).unwrap();
+
+        let after = store.articles_for(source_id).unwrap();
+        let urls_after = after.iter().map(|article| &article.url).collect::<Vec<_>>();
+        assert_eq!(urls_after, urls_before);
+        assert!(after[0].is_read);
     }
 }
