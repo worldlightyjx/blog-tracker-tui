@@ -499,8 +499,8 @@ impl App {
                 .block(Block::default().title(view_title).borders(Borders::ALL))
                 .highlight_style(
                     Style::default()
-                        .bg(Color::Blue)
-                        .fg(Color::White)
+                        .bg(Color::Rgb(30, 64, 175))
+                        .fg(Color::Rgb(255, 255, 255))
                         .add_modifier(Modifier::BOLD),
                 )
                 .highlight_symbol("› ");
@@ -667,4 +667,80 @@ fn main() -> Result<()> {
     let backend = CrosstermBackend::new(io::stdout());
     let mut terminal = Terminal::new(backend)?;
     run(&mut terminal, &mut app)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use blog_tracker_tui::model::{FoundArticle, FoundSource};
+    use ratatui::backend::TestBackend;
+
+    fn luminance(red: u8, green: u8, blue: u8) -> f64 {
+        let linear = |value: u8| {
+            let value = f64::from(value) / 255.0;
+            if value <= 0.04045 {
+                value / 12.92
+            } else {
+                ((value + 0.055) / 1.055).powf(2.4)
+            }
+        };
+        0.2126 * linear(red) + 0.7152 * linear(green) + 0.0722 * linear(blue)
+    }
+
+    fn contrast_ratio(foreground: Color, background: Color) -> Option<f64> {
+        let (Color::Rgb(fr, fg, fb), Color::Rgb(br, bg, bb)) = (foreground, background) else {
+            return None;
+        };
+        let a = luminance(fr, fg, fb);
+        let b = luminance(br, bg, bb);
+        Some((a.max(b) + 0.05) / (a.min(b) + 0.05))
+    }
+
+    #[test]
+    fn selected_blog_has_theme_independent_high_contrast_text() {
+        let database = tempfile::NamedTempFile::new().unwrap();
+        let mut store = Store::open(database.path()).unwrap();
+        let source_id = store.add_source("https://example.com/").unwrap();
+        store
+            .record_success(
+                source_id,
+                FoundSource {
+                    title: "Example Blog".into(),
+                    home_url: "https://example.com/".into(),
+                    feed_url: None,
+                    kind: "html".into(),
+                    articles: vec![FoundArticle {
+                        url: "https://example.com/post".into(),
+                        title: "A post".into(),
+                        published_at: None,
+                        position: 0,
+                    }],
+                },
+            )
+            .unwrap();
+        let (tx, rx) = mpsc::channel();
+        let app = App {
+            sources: store.sources().unwrap(),
+            store,
+            db_path: database.path().to_path_buf(),
+            config_path: database.path().with_extension("toml"),
+            articles: Vec::new(),
+            view: View::Sources,
+            selected: 0,
+            dialog: Dialog::None,
+            message: String::new(),
+            checking: false,
+            pending_refresh: Vec::new(),
+            tx,
+            rx,
+            next_check: Instant::now(),
+            quit: false,
+        };
+        let mut terminal = Terminal::new(TestBackend::new(80, 24)).unwrap();
+        terminal.draw(|frame| app.draw(frame)).unwrap();
+        let selected_text = terminal.backend().buffer().cell((5, 4)).unwrap();
+        let ratio = contrast_ratio(selected_text.fg, selected_text.bg)
+            .expect("selected blog colors must not depend on the terminal palette");
+        assert!(ratio >= 7.0, "selected blog text contrast was {ratio:.2}:1");
+    }
 }
