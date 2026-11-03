@@ -12,6 +12,7 @@ use blog_tracker_tui::{
     db::Store,
     fetch::{Fetcher, NeedsConfig},
     model::{Article, Source},
+    theme::Theme,
 };
 use clap::Parser;
 use crossterm::{
@@ -23,7 +24,7 @@ use ratatui::{
     Frame, Terminal,
     backend::CrosstermBackend,
     layout::{Constraint, Direction, Layout, Rect},
-    style::{Color, Modifier, Style},
+    style::{Modifier, Style},
     widgets::{Block, Borders, Clear, List, ListItem, ListState, Paragraph, Wrap},
 };
 
@@ -71,6 +72,8 @@ struct App {
     selected: usize,
     dialog: Dialog,
     message: String,
+    theme: Theme,
+    theme_warning: Option<String>,
     checking: bool,
     pending_refresh: Vec<i64>,
     tx: Sender<WorkerEvent>,
@@ -82,6 +85,7 @@ struct App {
 impl App {
     fn new(db_path: PathBuf, config_path: PathBuf) -> Result<Self> {
         let config = Config::load(&config_path)?;
+        let (theme, theme_warnings) = config.theme.resolve();
         let store = Store::open(&db_path)?;
         let (tx, rx) = mpsc::channel();
         let mut app = Self {
@@ -94,6 +98,8 @@ impl App {
             selected: 0,
             dialog: Dialog::None,
             message: "Press ? for help. Add a blog with a.".into(),
+            theme,
+            theme_warning: theme_notice(theme_warnings),
             checking: false,
             pending_refresh: Vec::new(),
             tx,
@@ -123,6 +129,7 @@ impl App {
     }
 
     fn refresh(&mut self, ids: Option<Vec<i64>>) {
+        self.reload_theme();
         if self.checking {
             if let Some(ids) = ids {
                 self.pending_refresh.extend(ids);
@@ -182,6 +189,19 @@ impl App {
             }
             let _ = tx.send(WorkerEvent::Finished);
         });
+    }
+
+    fn reload_theme(&mut self) {
+        match Config::load(&self.config_path) {
+            Ok(config) => {
+                let (theme, warnings) = config.theme.resolve();
+                self.theme = theme;
+                self.theme_warning = theme_notice(warnings);
+            }
+            Err(error) => {
+                self.theme_warning = Some(format!("Config error: {error:#}"));
+            }
+        }
     }
 
     fn tick(&mut self) -> Result<()> {
@@ -432,7 +452,7 @@ impl App {
         ))
         .style(
             Style::default()
-                .fg(Color::Cyan)
+                .fg(self.theme.accent_fg)
                 .add_modifier(Modifier::BOLD),
         )
         .block(Block::default().borders(Borders::ALL));
@@ -450,9 +470,9 @@ impl App {
                         _ => "",
                     };
                     let style = if source.unread_count > 0 {
-                        Style::default().fg(Color::Yellow)
+                        Style::default().fg(self.theme.unread_fg)
                     } else {
-                        Style::default()
+                        Style::default().fg(self.theme.read_fg)
                     };
                     ListItem::new(format!(
                         "{}  ·  {} unread{}",
@@ -474,9 +494,9 @@ impl App {
                         String::new()
                     };
                     let style = if article.is_read {
-                        Style::default().fg(Color::DarkGray)
+                        Style::default().fg(self.theme.read_fg)
                     } else {
-                        Style::default().fg(Color::White)
+                        Style::default().fg(self.theme.unread_fg)
                     };
                     ListItem::new(format!("{marker}  {date}  {prefix}{}", article.title))
                         .style(style)
@@ -499,8 +519,8 @@ impl App {
                 .block(Block::default().title(view_title).borders(Borders::ALL))
                 .highlight_style(
                     Style::default()
-                        .bg(Color::Rgb(30, 64, 175))
-                        .fg(Color::Rgb(255, 255, 255))
+                        .bg(self.theme.selected_bg)
+                        .fg(self.theme.selected_fg)
                         .add_modifier(Modifier::BOLD),
                 )
                 .highlight_symbol("› ");
@@ -519,9 +539,9 @@ impl App {
         frame.render_widget(
             Paragraph::new(format!(
                 "{}\n? help  ·  a add  ·  r refresh  ·  u unread  ·  q back/quit",
-                self.message
+                self.theme_warning.as_deref().unwrap_or(&self.message)
             ))
-            .style(Style::default().fg(Color::Gray)),
+            .style(Style::default().fg(self.theme.read_fg)),
             parts[3],
         );
 
@@ -612,6 +632,16 @@ fn centered(width_percent: u16, height: u16, outer: Rect) -> Rect {
     }
 }
 
+fn theme_notice(warnings: Vec<String>) -> Option<String> {
+    warnings.first().map(|first| {
+        if warnings.len() == 1 {
+            format!("Theme config: {first}")
+        } else {
+            format!("Theme config: {first} (+{} more)", warnings.len() - 1)
+        }
+    })
+}
+
 struct TerminalGuard;
 
 impl Drop for TerminalGuard {
@@ -672,29 +702,11 @@ fn main() -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use blog_tracker_tui::model::{FoundArticle, FoundSource};
-    use ratatui::backend::TestBackend;
-
-    fn luminance(red: u8, green: u8, blue: u8) -> f64 {
-        let linear = |value: u8| {
-            let value = f64::from(value) / 255.0;
-            if value <= 0.04045 {
-                value / 12.92
-            } else {
-                ((value + 0.055) / 1.055).powf(2.4)
-            }
-        };
-        0.2126 * linear(red) + 0.7152 * linear(green) + 0.0722 * linear(blue)
-    }
-
-    fn contrast_ratio(foreground: Color, background: Color) -> Option<f64> {
-        let (Color::Rgb(fr, fg, fb), Color::Rgb(br, bg, bb)) = (foreground, background) else {
-            return None;
-        };
-        let a = luminance(fr, fg, fb);
-        let b = luminance(br, bg, bb);
-        Some((a.max(b) + 0.05) / (a.min(b) + 0.05))
-    }
+    use blog_tracker_tui::{
+        model::{FoundArticle, FoundSource},
+        theme::contrast_ratio,
+    };
+    use ratatui::{backend::TestBackend, style::Color};
 
     #[test]
     fn selected_blog_has_theme_independent_high_contrast_text() {
@@ -719,7 +731,7 @@ mod tests {
             )
             .unwrap();
         let (tx, rx) = mpsc::channel();
-        let app = App {
+        let mut app = App {
             sources: store.sources().unwrap(),
             store,
             db_path: database.path().to_path_buf(),
@@ -729,6 +741,8 @@ mod tests {
             selected: 0,
             dialog: Dialog::None,
             message: String::new(),
+            theme: Theme::default(),
+            theme_warning: None,
             checking: false,
             pending_refresh: Vec::new(),
             tx,
@@ -742,5 +756,70 @@ mod tests {
         let ratio = contrast_ratio(selected_text.fg, selected_text.bg)
             .expect("selected blog colors must not depend on the terminal palette");
         assert!(ratio >= 7.0, "selected blog text contrast was {ratio:.2}:1");
+
+        std::fs::write(
+            &app.config_path,
+            "[theme]\nselected_fg = '#000000'\nselected_bg = '#ffffff'",
+        )
+        .unwrap();
+        app.reload_theme();
+        terminal.draw(|frame| app.draw(frame)).unwrap();
+        let customized = terminal.backend().buffer().cell((5, 4)).unwrap();
+        assert_eq!(customized.fg, Color::Rgb(0, 0, 0));
+        assert_eq!(customized.bg, Color::Rgb(255, 255, 255));
+    }
+
+    #[test]
+    fn theme_edits_reload_without_restarting_the_app() {
+        let directory = tempfile::tempdir().unwrap();
+        let db_path = directory.path().join("tracker.db");
+        let config_path = directory.path().join("config.toml");
+        let store = Store::open(&db_path).unwrap();
+        let (tx, rx) = mpsc::channel();
+        let mut app = App {
+            store,
+            db_path,
+            config_path: config_path.clone(),
+            sources: Vec::new(),
+            articles: Vec::new(),
+            view: View::Sources,
+            selected: 0,
+            dialog: Dialog::None,
+            message: String::new(),
+            theme: Theme::default(),
+            theme_warning: None,
+            checking: false,
+            pending_refresh: Vec::new(),
+            tx,
+            rx,
+            next_check: Instant::now(),
+            quit: false,
+        };
+        std::fs::write(
+            &config_path,
+            "[theme]\nselected_fg = '#000000'\nselected_bg = '#ffffff'\nunread_fg = '#ff0000'\nread_fg = '#334455'\naccent_fg = '#112233'",
+        )
+        .unwrap();
+
+        app.checking = true;
+        app.handle_normal_key(KeyEvent::new(KeyCode::Char('r'), KeyModifiers::NONE))
+            .unwrap();
+
+        assert_eq!(app.theme.selected_fg, Color::Rgb(0, 0, 0));
+        assert_eq!(app.theme.selected_bg, Color::Rgb(255, 255, 255));
+        assert_eq!(app.theme.unread_fg, Color::Rgb(255, 0, 0));
+        assert_eq!(app.theme.read_fg, Color::Rgb(51, 68, 85));
+        assert_eq!(app.theme.accent_fg, Color::Rgb(17, 34, 51));
+        assert!(app.theme_warning.is_none());
+
+        std::fs::write(
+            &config_path,
+            "[theme]\nselected_fg = '#ffffff'\nselected_bg = '#ffffff'",
+        )
+        .unwrap();
+        app.handle_normal_key(KeyEvent::new(KeyCode::Char('r'), KeyModifiers::NONE))
+            .unwrap();
+        assert_eq!(app.theme.selected_bg, Theme::default().selected_bg);
+        assert!(app.theme_warning.as_deref().unwrap().contains("contrast"));
     }
 }

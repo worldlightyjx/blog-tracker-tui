@@ -7,14 +7,14 @@ A local terminal app that tracks new posts from RSS/Atom/JSON feeds and public b
 Requires a current Rust toolchain on macOS or Linux.
 
 ```sh
-cargo install --path .
+cargo install --path . --locked
 blog-tracker-tui
 ```
 
 Install directly from the public GitHub repository:
 
 ```sh
-cargo install --git https://github.com/worldlightyjx/blog-tracker-tui.git
+cargo install --git https://github.com/worldlightyjx/blog-tracker-tui.git --locked
 ```
 
 The planned crates.io release will follow after the first version stabilizes.
@@ -46,7 +46,7 @@ The app checks at startup without delaying the interface, then every 30 minutes 
 
 ## Configuration and data
 
-Manual rules for web-only blogs live in a TOML config file. See [CONFIG.md](CONFIG.md) for paths, CSS selector examples, pagination, and troubleshooting. Changes are read on the next refresh; press `r` after editing.
+Manual rules for web-only blogs and five theme colors live in a TOML config file. See [CONFIG.md](CONFIG.md) for paths, CSS selector examples, color options, sample palettes, pagination, and troubleshooting. Changes are read on the next refresh; press `r` after editing.
 
 By default, the app uses the platform's local data and config directories under `blog-tracker-tui/`. You can choose explicit paths:
 
@@ -54,7 +54,7 @@ By default, the app uses the platform's local data and config directories under 
 blog-tracker-tui --data-dir /path/to/data --config /path/to/config.toml
 ```
 
-The SQLite database in the data directory stores subscriptions, article links, and read status. Deleting a blog from the TUI removes its saved articles and read history. The config file only holds optional manual recognition rules.
+The SQLite database in the data directory stores subscriptions, article links, and read status. Deleting a blog from the TUI removes its saved articles and read history. The config file holds checking settings, optional manual recognition rules, and theme colors.
 
 ## Scope and limitations
 
@@ -84,6 +84,6 @@ cargo test --test live_sites -- --ignored --nocapture
 
 本工具在终端中记录博客新文章，并用系统默认浏览器打开文章。首次检查最多把最近三篇标为未读；之后仅把新 URL 视为新文章。启动后立即显示本地记录，后台检查，每 30 分钟自动检查一次，也可按 `r` 手动刷新。
 
-在项目目录执行 `cargo install --path .`，然后运行 `blog-tracker-tui`。按 `a` 添加博客主页或 Feed 地址，`Enter` 进入博客或打开文章，`u` 查看全部未读，`Space` 切换已读状态，`m` 全部标为已读，`h` 打开博客首页，`d` 删除博客及本地历史。无 RSS 网站的手动配置方法见 [CONFIG.md](CONFIG.md) 的中文部分。
+在项目目录执行 `cargo install --path . --locked`，然后运行 `blog-tracker-tui`。按 `a` 添加博客主页或 Feed 地址，`Enter` 进入博客或打开文章，`u` 查看全部未读，`Space` 切换已读状态，`m` 全部标为已读，`h` 打开博客首页，`d` 删除博客及本地历史。无 RSS 网站的手动配置方法、五种可调颜色和示例配色见 [CONFIG.md](CONFIG.md) 的中文部分；修改后按 `r` 即可重新读取。
 
-代码采用 MIT 许可证。首版计划通过公开 GitHub 仓库供 `cargo install --git` 安装，稳定后发布到 crates.io。
+代码采用 MIT 许可证，现可从公开 GitHub 仓库通过 `cargo install --git` 安装；稳定后计划发布到 crates.io。

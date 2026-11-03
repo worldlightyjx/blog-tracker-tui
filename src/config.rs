@@ -3,12 +3,15 @@ use std::{fs, path::Path};
 use anyhow::{Context, Result};
 use serde::Deserialize;
 
+use crate::theme::ThemeConfig;
+
 #[derive(Debug, Clone, Deserialize)]
 #[serde(default)]
 pub struct Config {
     pub check_interval_minutes: u64,
     pub max_pages: usize,
     pub sites: Vec<SiteRule>,
+    pub theme: ThemeConfig,
 }
 
 impl Default for Config {
@@ -17,6 +20,7 @@ impl Default for Config {
             check_interval_minutes: 30,
             max_pages: 3,
             sites: Vec::new(),
+            theme: ThemeConfig::default(),
         }
     }
 }
@@ -70,5 +74,15 @@ mod tests {
         )
         .unwrap();
         assert!(config.rule_for("https://example.com").is_some());
+    }
+
+    #[test]
+    fn theme_and_site_rules_can_share_one_config_file() {
+        let config: Config = toml::from_str(
+            "check_interval_minutes = 30\nmax_pages = 3\n[theme]\nselected_fg = '#ffffff'\nselected_bg = '#1e40af'\n[[sites]]\nurl = 'https://example.com/'\narticle_selector = 'article a[href]'",
+        )
+        .unwrap();
+        assert!(config.theme.resolve().1.is_empty());
+        assert!(config.rule_for("https://example.com/").is_some());
     }
 }
