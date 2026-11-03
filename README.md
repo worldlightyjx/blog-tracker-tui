@@ -11,10 +11,10 @@ cargo install --path .
 blog-tracker-tui
 ```
 
-Once this repository is published on GitHub, install directly from Git by replacing `<username>` with the repository owner:
+Install directly from the public GitHub repository:
 
 ```sh
-cargo install --git https://github.com/<username>/blog-tracker-tui.git
+cargo install --git https://github.com/worldlightyjx/blog-tracker-tui.git
 ```
 
 The planned crates.io release will follow after the first version stabilizes.
